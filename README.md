@@ -2,6 +2,8 @@
 
 Assistente de conhecimento interno baseado em RAG (Retrieval-Augmented Generation), com retrieval híbrido (vetorial + keyword), reranking, geração com citação de fontes e deploy em produção — cada etapa validada com execução real (dados sintéticos, mas pipeline e infra reais) e avaliada com métricas, não só "rodou sem erro".
 
+**Demo ao vivo**: [http://152.70.217.167:8000/](http://152.70.217.167:8000/) — pergunte algo sobre a base de documentos sintéticos (documentação de API + política interna de uma empresa fictícia) e veja o retrieval e a geração acontecendo em tempo real. Sem HTTPS/domínio próprio (IP direto), limite de 8 perguntas/minuto por visitante.
+
 ## Status
 
 Projeto completo: Fases 1-7 implementadas e validadas com execução real.
@@ -70,7 +72,7 @@ O LLM de geração roda dentro da própria VPS, num container `router` (imagem `
 - **Vector DB**: Qdrant (Docker)
 - **Embeddings**: BAAI/bge-base-en-v1.5 (local)
 - **Reranker**: BAAI/bge-reranker-base (local, cross-encoder)
-- **API**: FastAPI (streaming via SSE)
+- **API**: FastAPI (streaming via SSE) + frontend estático de demonstração (`app/static/index.html`, servido pela própria API) + rate limiting em memória no `/query`
 - **LLM de geração e juiz de avaliação**: configurável — Anthropic (API oficial) ou qualquer proxy OpenAI-compatible (`LLM_PROVIDER=openai_compatible`), usado em produção via 9Router rodando como container na própria VPS
 - **Deploy**: Docker Compose numa VPS (Oracle Cloud), código versionado no GitHub; dashboard de administração do 9Router exposto só via Tailscale
 
@@ -84,8 +86,9 @@ app/
   retrieval/    # hybrid search (RRF) + reranking (Fase 3)
   evaluation/   # métricas de retrieval (Fase 4) + Answer Faithfulness via RAGAS (Fase 5)
   generation/   # prompt + cliente LLM (streaming) + citações (Fase 5)
-  api/          # endpoints FastAPI: /query (streaming) e /health (Fase 5)
+  api/          # endpoints FastAPI: /query (streaming) e /health (Fase 5) + rate limiting
   config/       # settings via variáveis de ambiente
+  static/       # frontend estático da demo ao vivo (index.html, servido pela própria API)
 data/
   test_docs/    # documentos sintéticos para validar o pipeline
   eval/         # dataset de perguntas + ground truth (Fase 4)
