@@ -1,16 +1,70 @@
 # RAG-Based Knowledge Assistant
 
-Assistente de conhecimento interno baseado em RAG (Retrieval-Augmented Generation), com retrieval híbrido (vetorial + keyword) e reranking, e avaliação comparativa entre estratégias de retrieval.
+Assistente de conhecimento interno baseado em RAG (Retrieval-Augmented Generation), com retrieval híbrido (vetorial + keyword), reranking, geração com citação de fontes e deploy em produção — cada etapa validada com execução real (dados sintéticos, mas pipeline e infra reais) e avaliada com métricas, não só "rodou sem erro".
 
 ## Status
 
-Fases 1-4 (ingestão, indexação, hybrid retrieval + reranking, avaliação de retrieval) e Fase 5 (API FastAPI + geração via LLM + Answer Faithfulness) implementadas e validadas. Fases seguintes (deploy, polish) estão descritas no plano de implementação, ainda não implementadas.
+Projeto completo: Fases 1-7 implementadas e validadas com execução real.
+
+| Fase | Conteúdo |
+|---|---|
+| 1 | Parsing (PDF/HTML/Markdown) + chunking (recursive/semantic) |
+| 2 | Indexação de embeddings no Qdrant + índice BM25 |
+| 3 | Retrieval híbrido (RRF) + reranking (cross-encoder) |
+| 4 | Avaliação comparativa de retrieval (Precision@5, Recall@5, MRR) |
+| 5 | API FastAPI (streaming SSE) + geração via LLM + citações + Answer Faithfulness (RAGAS) |
+| 6 | Deploy em VPS via Docker Compose, LLM alcançado via Tailscale |
+| 7 | Este README — diagrama de arquitetura, resultados consolidados, trade-offs |
 
 ## Arquitetura
 
+**Pipeline (ingestão → retrieval → geração):**
+
+```mermaid
+flowchart LR
+    subgraph Ingestao["Ingestão (Fases 1-2)"]
+        A["Documentos<br/>PDF / HTML / MD"] --> B["Parsing"]
+        B --> C["Chunking<br/>recursive / semantic"]
+        C --> D["Embeddings<br/>bge-base-en-v1.5"]
+        D --> E[("Qdrant")]
+        C --> F[("Índice BM25")]
+    end
+
+    subgraph Retrieval["Retrieval híbrido (Fase 3)"]
+        Qr["Pergunta"] --> G["Busca vetorial"]
+        Qr --> H["Busca BM25"]
+        E --> G
+        F --> H
+        G --> I["Fusão RRF"]
+        H --> I
+        I --> J["Cross-encoder<br/>rerank + blend"]
+    end
+
+    subgraph Geracao["Geração (Fase 5)"]
+        J --> K["Prompt com<br/>contexto numerado [n]"]
+        K --> L["LLM"]
+        L --> M["Streaming SSE"]
+        M --> N["Resolução de<br/>citações [n] → chunk real"]
+    end
+
+    N --> O["Resposta + fontes"]
 ```
-Documents → Parsing → Chunking → Embeddings → Vector DB → Retrieval → Reranking → LLM → Cited response
+
+**Deploy (Fase 6):**
+
+```mermaid
+flowchart LR
+    subgraph VPS["Oracle Cloud VPS — Ubuntu ARM64"]
+        API["FastAPI<br/>/query · /health"] --> QD[("Qdrant")]
+    end
+    subgraph Mac["Máquina do usuário"]
+        Router["9Router<br/>proxy OpenAI-compatible"]
+    end
+    Cliente["Cliente HTTP"] -- "porta 8000 (público)" --> API
+    API -- "Tailscale (tailnet privada)" --> Router
 ```
+
+O LLM de geração roda fora da VPS, num proxy local (9Router) na máquina do usuário — a VPS o alcança por Tailscale em vez de expor o proxy publicamente ou pagar por uma API de LLM hospedada (ver [Trade-offs](#trade-offs-e-decisões-de-design)).
 
 ## Stack
 
@@ -19,8 +73,8 @@ Documents → Parsing → Chunking → Embeddings → Vector DB → Retrieval �
 - **Embeddings**: BAAI/bge-base-en-v1.5 (local)
 - **Reranker**: BAAI/bge-reranker-base (local, cross-encoder)
 - **API**: FastAPI (streaming via SSE)
-- **LLM de geração**: Claude (Anthropic), citação de fontes por chunk
-- **Deploy**: Docker Compose (VPS)
+- **LLM de geração e juiz de avaliação**: configurável — Anthropic (API oficial) ou qualquer proxy OpenAI-compatible (`LLM_PROVIDER=openai_compatible`), usado em produção via 9Router
+- **Deploy**: Docker Compose numa VPS (Oracle Cloud), código versionado no GitHub; conectividade ao LLM via Tailscale
 
 ## Estrutura do projeto
 
@@ -38,7 +92,7 @@ data/
   test_docs/    # documentos sintéticos para validar o pipeline
   eval/         # dataset de perguntas + ground truth (Fase 4)
 docker/
-  docker-compose.yml  # Qdrant + API para desenvolvimento local
+  docker-compose.yml  # Qdrant + API (Fases 5-6)
   Dockerfile          # imagem da API (Fase 5)
 scripts/
   run_ingestion.py       # valida parsing + chunking ponta a ponta (Fase 1)
@@ -63,7 +117,7 @@ cp .env.example .env
 Sobe o Qdrant para desenvolvimento local:
 
 ```bash
-docker compose -f docker/docker-compose.yml up -d
+docker compose -f docker/docker-compose.yml up -d qdrant
 ```
 
 ## Rodando a Fase 1 (parsing + chunking)
@@ -86,7 +140,7 @@ Smoke test sem nenhuma dependência pesada instalada (usa embedder e vector stor
 python scripts/run_indexing.py --dir data/test_docs --dry-run
 ```
 
-Indexação de verdade (precisa do venv com `pip install -r requirements.txt` e do Qdrant no ar via `docker compose -f docker/docker-compose.yml up -d`):
+Indexação de verdade (precisa do venv com `pip install -r requirements.txt` e do Qdrant no ar via `docker compose -f docker/docker-compose.yml up -d qdrant`):
 
 ```bash
 python scripts/run_indexing.py --dir data/test_docs
@@ -133,22 +187,14 @@ Avaliação de verdade (precisa do Qdrant indexado + BM25 salvo — rode `run_in
 python scripts/run_evaluation.py
 ```
 
-Compara `vector_only`, `hybrid`, `hybrid_rerank` e `hybrid_rerank_blend` em Precision@5, Recall@5 e MRR sobre as 26 perguntas em `data/eval/qa_dataset.json` (19 com 1 chunk relevante, 7 multi-hop com 2-4 chunks relevantes). É o gráfico central da apresentação do projeto — mostra empiricamente se hybrid retrieval, reranking e a mitigação de blend valem o custo extra.
-
-**Resultado real (k=5, n=26):**
-
-| modo | precision@5 | recall@5 | MRR |
-|---|---|---|---|
-| vector_only | 0.254 | 0.968 | 0.859 |
-| hybrid | 0.254 | 0.968 | 0.897 |
-| hybrid_rerank | 0.254 | 0.958 | 0.904 |
-| **hybrid_rerank_blend** | **0.262** | **0.978** | **0.904** |
-
-`--verbose` revelou uma regressão de recall pontual em `hybrid_rerank` (uma pergunta multi-hop perdeu um chunk relevante porque o cross-encoder julgou o tema geral do trecho, não o fato específico nele — ver `app/retrieval/blend.py`). `hybrid_rerank_blend` foi implementado como mitigação e corrigiu a regressão sem sacrificar o ganho de MRR do reranking puro, além de melhorar precision@5 e recall@5 agregados. É o modo default do projeto (`app/retrieval/pipeline.py` e `app/api/dependencies.py`).
+Compara `vector_only`, `hybrid`, `hybrid_rerank` e `hybrid_rerank_blend` em Precision@5, Recall@5 e MRR sobre as 26 perguntas em `data/eval/qa_dataset.json` (19 com 1 chunk relevante, 7 multi-hop com 2-4 chunks relevantes).
 
 ## Rodando a Fase 5 (API + geração via LLM)
 
-Precisa de `ANTHROPIC_API_KEY` configurada no `.env` (a geração usa Claude via API — ver decisão de stack no plano de implementação: "pra portfolio, API é mais simples e o foco de valor está no retrieval, não no LLM em si").
+A geração aceita dois providers, via `LLM_PROVIDER` no `.env`:
+
+- `LLM_PROVIDER=anthropic` — API oficial da Anthropic (`ANTHROPIC_API_KEY`).
+- `LLM_PROVIDER=openai_compatible` — qualquer proxy que fale o protocolo de chat completions da OpenAI (`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`). Usado em produção com o [9Router](https://github.com), evitando acoplar o projeto a um único provider pago (ver [Trade-offs](#trade-offs-e-decisões-de-design)).
 
 Sobe a API (precisa do Qdrant indexado + BM25 salvo, como na Fase 3/4):
 
@@ -166,31 +212,87 @@ curl -N -X POST http://localhost:8000/query \
     -d '{"question": "Como funciona a autenticação da API?"}'
 ```
 
-Cada afirmação da resposta é citada como `[n]`, resolvido de volta pros metadados reais do chunk (`source`/`section`/`page`) no evento `done` — sem confiar no LLM para relatar a fonte corretamente (ver `app/generation/citations.py`).
+Cada afirmação da resposta é citada como `[n]`, resolvido de volta pros metadados reais do chunk (`source`/`section`/`page`) no evento `done` — sem confiar no LLM para relatar a fonte corretamente (ver `app/generation/citations.py`). Uma falha do LLM no meio do streaming emite um evento `error` explícito em vez de derrubar a conexão sem explicação.
 
 `GET /health` reporta se o índice BM25 foi carregado (hybrid retrieval disponível) e qual collection do Qdrant está em uso.
 
 ### Answer Faithfulness via RAGAS
 
-Diferente da Fase 4 (avalia só retrieval), esta métrica avalia se a resposta *gerada* é fiel ao contexto recuperado — detecta alucinação. Tem custo real de API por pergunta (1 chamada pra gerar a resposta + 1+ do juiz do RAGAS), por isso `--limit` controla quantas perguntas rodar:
+Diferente da Fase 4 (avalia só retrieval), esta métrica avalia se a resposta *gerada* é fiel ao contexto recuperado — detecta alucinação, via decomposição em afirmações atômicas + julgamento NLI por um LLM juiz. Tem custo real por pergunta (1 chamada pra gerar a resposta + 1+ do juiz), por isso `--limit` controla quantas perguntas rodar:
 
 ```bash
 python scripts/run_generation_eval.py --dry-run          # valida a orquestração, sem custo de API
 python scripts/run_generation_eval.py --limit 5           # roda de verdade nas 5 primeiras perguntas
 ```
 
-O juiz do RAGAS usa o mesmo provider (Anthropic) configurado pra geração, via `LangchainLLMWrapper` em torno de um `ChatAnthropic` — evita depender de uma chave da OpenAI só pra avaliação.
+O juiz do RAGAS usa o mesmo provider configurado pra geração (`build_evaluator_llm`, via `LangchainLLMWrapper`).
+
+## Resultados
+
+### Retrieval (Fase 4) — k=5, n=26
+
+| modo | precision@5 | recall@5 | MRR |
+|---|---|---|---|
+| vector_only | 0.254 | 0.968 | 0.859 |
+| hybrid | 0.254 | 0.968 | 0.897 |
+| hybrid_rerank | 0.254 | 0.958 | 0.904 |
+| **hybrid_rerank_blend** | **0.262** | **0.978** | **0.904** |
+
+`--verbose` revelou uma regressão de recall pontual em `hybrid_rerank` (uma pergunta multi-hop perdeu um chunk relevante porque o cross-encoder julgou o tema geral do trecho, não o fato específico nele). `hybrid_rerank_blend` corrigiu a regressão sem sacrificar o ganho de MRR do reranking puro, além de melhorar precision@5 e recall@5 agregados — é o modo default do projeto (`app/retrieval/pipeline.py` e `app/api/dependencies.py`).
+
+### Answer Faithfulness (Fase 5) — RAGAS
+
+| Rodada | n | Faithfulness médio |
+|---|---|---|
+| Piloto, prompt com bug de meta-atribuição | 5 | 0.889 |
+| Após correção do prompt (mesmas perguntas do outlier) | 3 | 1.000 |
+| Completa, prompt corrigido | 26 | **0.950** |
+
+Duas investigações de outlier durante a validação, com metodologias e conclusões opostas:
+
+**Outlier real (0.60 → corrigido).** A resposta terminava com uma frase de meta-atribuição ("Essas informações constam na documentação... seção X [1]"), que descreve *onde* está a informação em vez do conteúdo em si — o chunk não se autodescreve, então o juiz não conseguiu confirmar essa frase como fundamentada. Corrigido proibindo esse padrão no `SYSTEM_PROMPT`; a mesma pergunta voltou a pontuar 1.00.
+
+**Outlier falso (0.23 → ruído do juiz, não bug).** Inspeção manual da resposta e do contexto completo (sem truncar) mostrou fundamentação correta nos chunks citados. Re-rodando a *mesma* pergunta, com o mesmo prompt e contexto, o score saiu 0.69 na segunda tentativa — evidência de que o modelo usado como juiz (via 9Router, menor que o GPT-4/Claude grande que os papers do RAGAS normalmente usam como referência) introduz ruído real na decomposição de afirmações + julgamento NLI. A média agregada continua um sinal útil e estável (0.889 em n=5, 0.950 em n=26); scores de perguntas individuais isoladas, não — documentado como limitação conhecida em vez de "corrigido" (trocar de juiz reintroduziria a dependência de crédito pago que motivou usar o 9Router).
+
+## Deploy (Fase 6)
+
+Deploy validado numa VPS Oracle Cloud (Ubuntu 24.04, ARM64) via Docker Compose, com o código vindo do GitHub (`git clone`, não cópia manual de arquivos).
+
+```bash
+git clone <repo> && cd rag-knowledge-assistant
+cp .env.example .env   # editar: LLM_PROVIDER, LLM_BASE_URL, LLM_API_KEY, LLM_MODEL
+sudo docker compose -f docker/docker-compose.yml up -d --build
+sudo docker compose -f docker/docker-compose.yml exec api python scripts/run_indexing.py --dir data/test_docs
+```
+
+`docker-compose.yml` sobe dois serviços: `qdrant` e `api` (build a partir de `docker/Dockerfile`). O diretório `data/` é bind-mounted em vez de copiado pra imagem, porque a indexação roda depois do build, contra o Qdrant do próprio compose. **Atenção**: a API carrega o índice BM25 uma única vez, no startup (`app.state.generator`) — se a indexação rodar depois da API já estar de pé, é preciso `docker compose restart api` pra ela pegar o índice novo.
+
+O LLM de geração roda fora da VPS, num proxy local (9Router) na máquina do usuário — inviável expor `localhost:20128` publicamente sem autenticação adicional, e trocar por uma API paga reintroduziria o problema de crédito que motivou o 9Router. Solução: a VPS alcança o Mac pela mesma tailnet Tailscale que o usuário já usa no dia a dia, via `tailscale serve --bg --tcp=20128 tcp://127.0.0.1:20128` rodado no Mac — expõe a porta na tailnet sem mudar o bind do 9Router nem depender da integração Tailscale embutida do próprio app (que falhou consistentemente com "tailscale up timed out without auth URL", provavelmente por conflito com o Tailscale de sistema já autenticado na mesma máquina).
+
+Validado ponta a ponta, inclusive pelo IP público (depois de liberar a porta 8000 no `ufw` e na Security List da VCN do Oracle Cloud): retrieval híbrido, streaming SSE completo, resposta em português citando `[n]`, citação resolvida corretamente.
 
 ## Testes
 
 ```bash
-python -m unittest discover -s tests -v
+python3 -m unittest discover -s tests -v
 ```
 
-## Nota sobre o ambiente de desenvolvimento
+66 testes, cobrindo parsing, chunking, indexação, retrieval, geração, citações e a API (incluindo o tratamento de erro do streaming).
 
-O contador de tokens usado no chunking (`app/chunking/token_utils.py`) usa um tokenizador baseado em regex em vez de tiktoken/BPE. Isso porque chunk_size é um parâmetro heurístico — não existe uma contagem "exata" de tokens que sirva para todo modelo de embedding (bge-base usa WordPiece, não o BPE da OpenAI) — e um contador sem dependências externas evita acoplar o chunking a uma biblioteca específica. Se quiser a contagem exata do tokenizer do embedding model, troque por `AutoTokenizer.from_pretrained(EMBEDDING_MODEL)` do `transformers`.
+## Trade-offs e decisões de design
 
-## Próximos passos
+**Chunking sem tokenizer exato.** O contador de tokens (`app/chunking/token_utils.py`) usa regex em vez de tiktoken/BPE. `chunk_size` é um parâmetro heurístico — não existe contagem "exata" que sirva pra todo embedding model (bge-base usa WordPiece, não o BPE da OpenAI) — e um contador sem dependência externa evita acoplar o chunking a uma biblioteca específica. Pra contagem exata do tokenizer do embedding model, trocar por `AutoTokenizer.from_pretrained(EMBEDDING_MODEL)`.
 
-Ver o plano de implementação completo (Fases 6-7: deploy via Docker Compose na VPS, README final) na página do projeto no Notion.
+**`hybrid_rerank_blend` como default, não `hybrid_rerank` puro.** Cross-encoder isolado é mais suscetível a julgar o tema geral do trecho em vez do fato específico citado na pergunta — um problema real observado nos dados de avaliação (Fase 4), não hipotético. Misturar o rerank_score com o rrf_score original custa uma fração do ganho de MRR do reranking puro-metade do caminho (MRR idêntico: 0.904 nos dois), mas recupera a regressão de recall — trade-off favorável sem contrapartida negativa identificada no dataset atual.
+
+**Provider de LLM desacoplado (Anthropic vs. proxy OpenAI-compatible).** Escolhido para não travar o projeto (nem a demonstração em portfolio) a uma única conta paga, e porque é um padrão real de produção — times trocam de provider ou usam um roteador/gateway interno. O custo é um juiz de RAGAS mais ruidoso quando o modelo por trás do proxy é menor que os modelos de referência dos papers do RAGAS (documentado nos resultados acima) — aceito porque a métrica agregada continua confiável e o ganho de flexibilidade/portfolio supera o ruído em scores individuais.
+
+**Só streaming, sem endpoint não-SSE.** O plano original pedia streaming explicitamente, e o valor de diferenciação do projeto está no retrieval (retrieval híbrido + blend + avaliação comparativa), não em oferecer múltiplas variantes de API pro mesmo LLM.
+
+**Citação resolvida por índice, nunca por texto do LLM.** `app/generation/citations.py` extrai só o marcador numérico `[n]` da resposta e resolve pro metadado real do chunk que ocupava a posição n no prompt — o LLM nunca é a fonte de verdade sobre *qual* é a fonte, só sobre *que* informação usar. Evita um LLM confiante citando a fonte errada (alucinação de citação, distinta de alucinação de conteúdo).
+
+**LLM de produção fora da VPS, via Tailscale.** Alternativas descartadas: (a) expor o 9Router publicamente na internet — superfície de ataque desnecessária num serviço sem TLS/hardening própria pra isso; (b) usar a API paga da Anthropic na VPS — reintroduz a dependência de crédito que motivou trocar pra um proxy local; (c) rodar um LLM local na própria VPS — inviável no free tier ARM da Oracle (sem GPU, RAM limitada) e o build do Docker já levou ~90 minutos só pra instalar `torch`/`transformers`/`sentence-transformers` do embedder e reranker, que são leves comparados a servir um LLM. Tailscale resolve com uma superfície de ataque menor (tráfego só dentro da tailnet privada) e zero custo adicional, ao preço de acoplar a disponibilidade da API à máquina do usuário estar ligada e com o 9Router no ar — aceitável pra um projeto de portfolio, não pra produção real com SLA.
+
+## Ambiente de desenvolvimento
+
+Desenvolvido num Mac Intel (Python 3.12 — `python` costuma apontar pro Python 3.9 do Xcode em macOS, usar sempre `python3`; `torch>=2.2.0,<3.0.0`). Deploy numa VPS ARM64 — o mesmo `requirements.txt` funciona nas duas arquiteturas, mas o build de dependências pesadas (torch/transformers) é sensivelmente mais lento em ARM sem wheels pré-compiladas.
