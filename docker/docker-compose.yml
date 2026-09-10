@@ -18,6 +18,7 @@ services:
       - "100.114.121.79:20128:20128"
     environment:
       DATA_DIR: /app/data
+      INITIAL_PASSWORD: ${ROUTER_INITIAL_PASSWORD}
     volumes:
       - router_data:/app/data
     restart: unless-stopped
