@@ -11,6 +11,17 @@ services:
       - qdrant_storage:/qdrant/storage
     restart: unless-stopped
 
+  router:
+    image: decolua/9router:latest
+    container_name: rag_router
+    ports:
+      - "100.114.121.79:20128:20128"
+    environment:
+      DATA_DIR: /app/data
+    volumes:
+      - router_data:/app/data
+    restart: unless-stopped
+
   api:
     build:
       context: ..
@@ -24,9 +35,11 @@ services:
       - ../.env
     depends_on:
       - qdrant
+      - router
     volumes:
       - ../data:/app/data
     restart: unless-stopped
 
 volumes:
   qdrant_storage:
+  router_data:
