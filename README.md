@@ -13,7 +13,7 @@ Projeto completo: Fases 1-7 implementadas e validadas com execução real.
 | 3 | Retrieval híbrido (RRF) + reranking (cross-encoder) |
 | 4 | Avaliação comparativa de retrieval (Precision@5, Recall@5, MRR) |
 | 5 | API FastAPI (streaming SSE) + geração via LLM + citações + Answer Faithfulness (RAGAS) |
-| 6 | Deploy em VPS via Docker Compose, LLM alcançado via Tailscale |
+| 6 | Deploy em VPS via Docker Compose, 9Router (proxy de LLM) rodando na própria VPS |
 | 7 | Este README — diagrama de arquitetura, resultados consolidados, trade-offs |
 
 ## Arquitetura
@@ -56,15 +56,13 @@ flowchart LR
 flowchart LR
     subgraph VPS["Oracle Cloud VPS — Ubuntu ARM64"]
         API["FastAPI<br/>/query · /health"] --> QD[("Qdrant")]
-    end
-    subgraph Mac["Máquina do usuário"]
-        Router["9Router<br/>proxy OpenAI-compatible"]
+        API --> Router["9Router<br/>proxy OpenAI-compatible"]
     end
     Cliente["Cliente HTTP"] -- "porta 8000 (público)" --> API
-    API -- "Tailscale (tailnet privada)" --> Router
+    Admin["Navegador do usuário"] -- "Tailscale (dashboard, porta 20128)" --> Router
 ```
 
-O LLM de geração roda fora da VPS, num proxy local (9Router) na máquina do usuário — a VPS o alcança por Tailscale em vez de expor o proxy publicamente ou pagar por uma API de LLM hospedada (ver [Trade-offs](#trade-offs-e-decisões-de-design)).
+O LLM de geração roda dentro da própria VPS, num container `router` (imagem `decolua/9router`, multi-arquitetura `amd64`/`arm64`) no mesmo `docker-compose.yml` — `api` fala com ele pela rede interna do Docker (`http://router:20128/v1`), sem depender de nenhuma outra máquina no ar. O dashboard de administração (configurar providers/combo) fica exposto só na tailnet Tailscale da VPS, nunca na internet pública (ver [Trade-offs](#trade-offs-e-decisões-de-design)).
 
 ## Stack
 
@@ -73,8 +71,8 @@ O LLM de geração roda fora da VPS, num proxy local (9Router) na máquina do us
 - **Embeddings**: BAAI/bge-base-en-v1.5 (local)
 - **Reranker**: BAAI/bge-reranker-base (local, cross-encoder)
 - **API**: FastAPI (streaming via SSE)
-- **LLM de geração e juiz de avaliação**: configurável — Anthropic (API oficial) ou qualquer proxy OpenAI-compatible (`LLM_PROVIDER=openai_compatible`), usado em produção via 9Router
-- **Deploy**: Docker Compose numa VPS (Oracle Cloud), código versionado no GitHub; conectividade ao LLM via Tailscale
+- **LLM de geração e juiz de avaliação**: configurável — Anthropic (API oficial) ou qualquer proxy OpenAI-compatible (`LLM_PROVIDER=openai_compatible`), usado em produção via 9Router rodando como container na própria VPS
+- **Deploy**: Docker Compose numa VPS (Oracle Cloud), código versionado no GitHub; dashboard de administração do 9Router exposto só via Tailscale
 
 ## Estrutura do projeto
 
@@ -194,7 +192,7 @@ Compara `vector_only`, `hybrid`, `hybrid_rerank` e `hybrid_rerank_blend` em Prec
 A geração aceita dois providers, via `LLM_PROVIDER` no `.env`:
 
 - `LLM_PROVIDER=anthropic` — API oficial da Anthropic (`ANTHROPIC_API_KEY`).
-- `LLM_PROVIDER=openai_compatible` — qualquer proxy que fale o protocolo de chat completions da OpenAI (`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`). Usado em produção com o [9Router](https://github.com), evitando acoplar o projeto a um único provider pago (ver [Trade-offs](#trade-offs-e-decisões-de-design)).
+- `LLM_PROVIDER=openai_compatible` — qualquer proxy que fale o protocolo de chat completions da OpenAI (`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`). Usado em produção com o [9Router](https://github.com/decolua/9router) rodando como container na própria VPS, evitando acoplar o projeto a um único provider pago (ver [Trade-offs](#trade-offs-e-decisões-de-design)).
 
 Sobe a API (precisa do Qdrant indexado + BM25 salvo, como na Fase 3/4):
 
@@ -267,9 +265,11 @@ sudo docker compose -f docker/docker-compose.yml exec api python scripts/run_ind
 
 `docker-compose.yml` sobe dois serviços: `qdrant` e `api` (build a partir de `docker/Dockerfile`). O diretório `data/` é bind-mounted em vez de copiado pra imagem, porque a indexação roda depois do build, contra o Qdrant do próprio compose. **Atenção**: a API carrega o índice BM25 uma única vez, no startup (`app.state.generator`) — se a indexação rodar depois da API já estar de pé, é preciso `docker compose restart api` pra ela pegar o índice novo.
 
-O LLM de geração roda fora da VPS, num proxy local (9Router) na máquina do usuário — inviável expor `localhost:20128` publicamente sem autenticação adicional, e trocar por uma API paga reintroduziria o problema de crédito que motivou o 9Router. Solução: a VPS alcança o Mac pela mesma tailnet Tailscale que o usuário já usa no dia a dia, via `tailscale serve --bg --tcp=20128 tcp://127.0.0.1:20128` rodado no Mac — expõe a porta na tailnet sem mudar o bind do 9Router nem depender da integração Tailscale embutida do próprio app (que falhou consistentemente com "tailscale up timed out without auth URL", provavelmente por conflito com o Tailscale de sistema já autenticado na mesma máquina).
+**Primeira versão**: o LLM rodava fora da VPS, num proxy local (9Router) no Mac do usuário, alcançado via Tailscale (`tailscale serve --bg --tcp=20128 tcp://127.0.0.1:20128`). Funcionou, mas acoplava a disponibilidade da API em produção a uma máquina de uso pessoal estar ligada e com o app aberto — inaceitável mesmo pra portfolio, então foi substituído.
 
-Validado ponta a ponta, inclusive pelo IP público (depois de liberar a porta 8000 no `ufw` e na Security List da VCN do Oracle Cloud): retrieval híbrido, streaming SSE completo, resposta em português citando `[n]`, citação resolvida corretamente.
+**Versão final**: o 9Router roda como um terceiro serviço (`router`) no mesmo `docker-compose.yml`, imagem oficial `decolua/9router` (multi-arquitetura, compatível com o ARM64 da VPS). A `api` fala com ele pela rede interna do Docker (`LLM_BASE_URL=http://router:20128/v1`) — zero dependência externa. O dashboard de administração (porta 20128, onde se configuram providers e o combo do 9Router) é publicado só no IP Tailscale da própria VPS (`ports: ["<ip-tailscale-da-vps>:20128:20128"]` no compose), nunca em `0.0.0.0` — Docker manipula iptables diretamente e pode ignorar regras do `ufw`, então amarrar a porta a um IP específico é a forma confiável de mantê-la fora da internet pública. Login remoto (não-`localhost`) exige trocar a senha padrão do 9Router antes; contornado com uma senha inicial via `INITIAL_PASSWORD` (variável de ambiente lida do `.env`, não versionada), trocada no primeiro acesso pelo dashboard.
+
+Validado ponta a ponta, inclusive pelo IP público (depois de liberar a porta 8000 no `ufw` e na Security List da VCN do Oracle Cloud): retrieval híbrido, streaming SSE completo, geração via 9Router local à VPS, resposta em português citando `[n]`, citação resolvida corretamente.
 
 ## Testes
 
@@ -291,7 +291,7 @@ python3 -m unittest discover -s tests -v
 
 **Citação resolvida por índice, nunca por texto do LLM.** `app/generation/citations.py` extrai só o marcador numérico `[n]` da resposta e resolve pro metadado real do chunk que ocupava a posição n no prompt — o LLM nunca é a fonte de verdade sobre *qual* é a fonte, só sobre *que* informação usar. Evita um LLM confiante citando a fonte errada (alucinação de citação, distinta de alucinação de conteúdo).
 
-**LLM de produção fora da VPS, via Tailscale.** Alternativas descartadas: (a) expor o 9Router publicamente na internet — superfície de ataque desnecessária num serviço sem TLS/hardening própria pra isso; (b) usar a API paga da Anthropic na VPS — reintroduz a dependência de crédito que motivou trocar pra um proxy local; (c) rodar um LLM local na própria VPS — inviável no free tier ARM da Oracle (sem GPU, RAM limitada) e o build do Docker já levou ~90 minutos só pra instalar `torch`/`transformers`/`sentence-transformers` do embedder e reranker, que são leves comparados a servir um LLM. Tailscale resolve com uma superfície de ataque menor (tráfego só dentro da tailnet privada) e zero custo adicional, ao preço de acoplar a disponibilidade da API à máquina do usuário estar ligada e com o 9Router no ar — aceitável pra um projeto de portfolio, não pra produção real com SLA.
+**Proxy de LLM dentro da VPS, não num LLM local nem preso ao notebook do usuário.** Três alternativas descartadas: (a) rodar o LLM de geração localmente na própria VPS — inviável no free tier ARM da Oracle (sem GPU, RAM limitada); o build do Docker já levou ~90 minutos só pra instalar `torch`/`transformers`/`sentence-transformers` do embedder e reranker, que são leves comparados a servir um LLM; (b) usar a API paga da Anthropic na VPS — reintroduz a dependência de crédito que motivou trocar pra um proxy local; (c) manter o 9Router no Mac do usuário e a VPS alcançando via Tailscale — funcionou, mas acopla a disponibilidade da API de produção a uma máquina pessoal estar ligada, um ponto único de falha inaceitável mesmo pra portfolio. Solução final: 9Router como container no próprio `docker-compose.yml` da VPS, com o dashboard de administração exposto só via Tailscale (nunca publicamente) — resolve o SPOF sem abrir mão da superfície de ataque mínima que motivou usar Tailscale desde o início.
 
 ## Ambiente de desenvolvimento
 
