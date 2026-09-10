@@ -1,0 +1,302 @@
+[
+  {
+    "id": "q01",
+    "question": "Para que serve a API de pagamentos interna?",
+    "relevant": [
+      {
+        "source": "api_documentation.md",
+        "section": "Documentação da API de Pagamentos"
+      }
+    ]
+  },
+  {
+    "id": "q02",
+    "question": "Como autenticar as requisições na API de pagamentos?",
+    "relevant": [
+      {
+        "source": "api_documentation.md",
+        "section": "Autenticação"
+      }
+    ]
+  },
+  {
+    "id": "q03",
+    "question": "Quais campos são obrigatórios para criar uma cobrança?",
+    "relevant": [
+      {
+        "source": "api_documentation.md",
+        "section": "Criando uma cobrança"
+      }
+    ]
+  },
+  {
+    "id": "q04",
+    "question": "Como funciona um estorno parcial de uma cobrança?",
+    "relevant": [
+      {
+        "source": "api_documentation.md",
+        "section": "Estornos"
+      }
+    ]
+  },
+  {
+    "id": "q05",
+    "question": "Como consultar o status de uma cobrança pelo id?",
+    "relevant": [
+      {
+        "source": "api_documentation.md",
+        "section": "Consultando status de transações"
+      }
+    ]
+  },
+  {
+    "id": "q06",
+    "question": "Qual o limite de requisições por minuto da API?",
+    "relevant": [
+      {
+        "source": "api_documentation.md",
+        "section": "Rate limiting"
+      }
+    ]
+  },
+  {
+    "id": "q07",
+    "question": "Como a API assina os eventos de webhook?",
+    "relevant": [
+      {
+        "source": "api_documentation.md",
+        "section": "Webhooks"
+      }
+    ]
+  },
+  {
+    "id": "q08",
+    "question": "O que a política de trabalho remoto define?",
+    "relevant": [
+      {
+        "source": "company_policy.html",
+        "section": "Política de Trabalho Remoto"
+      }
+    ]
+  },
+  {
+    "id": "q09",
+    "question": "Quem pode solicitar o regime de trabalho remoto?",
+    "relevant": [
+      {
+        "source": "company_policy.html",
+        "section": "Elegibilidade"
+      }
+    ]
+  },
+  {
+    "id": "q10",
+    "question": "Qual auxílio a empresa paga para internet e energia no home office?",
+    "relevant": [
+      {
+        "source": "company_policy.html",
+        "section": "Equipamento e infraestrutura"
+      }
+    ]
+  },
+  {
+    "id": "q11",
+    "question": "Qual o horário núcleo obrigatório para funcionários remotos?",
+    "relevant": [
+      {
+        "source": "company_policy.html",
+        "section": "Disponibilidade e horário"
+      }
+    ]
+  },
+  {
+    "id": "q12",
+    "question": "É permitido usar dispositivo pessoal para acessar dados de clientes?",
+    "relevant": [
+      {
+        "source": "company_policy.html",
+        "section": "Segurança da informação"
+      }
+    ]
+  },
+  {
+    "id": "q13",
+    "question": "Com quantos dias de antecedência o gestor deve avisar sobre uma reunião presencial obrigatória?",
+    "relevant": [
+      {
+        "source": "company_policy.html",
+        "section": "Reuniões presenciais obrigatórias"
+      }
+    ]
+  },
+  {
+    "id": "q14",
+    "question": "De quanto em quanto tempo a política de home office é revisada?",
+    "relevant": [
+      {
+        "source": "company_policy.html",
+        "section": "Revisão da política"
+      }
+    ]
+  },
+  {
+    "id": "q15",
+    "question": "Qual a faixa de temperatura de operação do sensor TX-200?",
+    "relevant": [
+      {
+        "source": "product_manual.pdf",
+        "page": 1
+      }
+    ]
+  },
+  {
+    "id": "q16",
+    "question": "Qual a distância mínima recomendada entre o sensor e fontes de calor externas?",
+    "relevant": [
+      {
+        "source": "product_manual.pdf",
+        "page": 2
+      }
+    ]
+  },
+  {
+    "id": "q17",
+    "question": "Qual o desvio máximo aceitável na calibração do sensor?",
+    "relevant": [
+      {
+        "source": "product_manual.pdf",
+        "page": 3
+      }
+    ]
+  },
+  {
+    "id": "q18",
+    "question": "Qual protocolo de comunicação o TX-200 usa?",
+    "relevant": [
+      {
+        "source": "product_manual.pdf",
+        "page": 4
+      }
+    ]
+  },
+  {
+    "id": "q19",
+    "question": "Qual a vida útil esperada do sensor em condições normais?",
+    "relevant": [
+      {
+        "source": "product_manual.pdf",
+        "page": 5
+      }
+    ]
+  },
+  {
+    "id": "q20",
+    "question": "Quais erros HTTP a API pode retornar e em que situações?",
+    "relevant": [
+      {
+        "source": "api_documentation.md",
+        "section": "Autenticação"
+      },
+      {
+        "source": "api_documentation.md",
+        "section": "Criando uma cobrança"
+      },
+      {
+        "source": "api_documentation.md",
+        "section": "Estornos"
+      },
+      {
+        "source": "api_documentation.md",
+        "section": "Rate limiting"
+      }
+    ]
+  },
+  {
+    "id": "q21",
+    "question": "Quais mecanismos de idempotência ou retry existem na API?",
+    "relevant": [
+      {
+        "source": "api_documentation.md",
+        "section": "Criando uma cobrança"
+      },
+      {
+        "source": "api_documentation.md",
+        "section": "Rate limiting"
+      },
+      {
+        "source": "api_documentation.md",
+        "section": "Webhooks"
+      }
+    ]
+  },
+  {
+    "id": "q22",
+    "question": "Quais são os possíveis status de uma cobrança e como consultá-los?",
+    "relevant": [
+      {
+        "source": "api_documentation.md",
+        "section": "Criando uma cobrança"
+      },
+      {
+        "source": "api_documentation.md",
+        "section": "Consultando status de transações"
+      }
+    ]
+  },
+  {
+    "id": "q23",
+    "question": "Quais responsabilidades financeiras a empresa assume para funcionários remotos?",
+    "relevant": [
+      {
+        "source": "company_policy.html",
+        "section": "Equipamento e infraestrutura"
+      },
+      {
+        "source": "company_policy.html",
+        "section": "Reuniões presenciais obrigatórias"
+      }
+    ]
+  },
+  {
+    "id": "q24",
+    "question": "Quais são as obrigações de disponibilidade e presença física do funcionário remoto?",
+    "relevant": [
+      {
+        "source": "company_policy.html",
+        "section": "Disponibilidade e horário"
+      },
+      {
+        "source": "company_policy.html",
+        "section": "Reuniões presenciais obrigatórias"
+      }
+    ]
+  },
+  {
+    "id": "q25",
+    "question": "O que pode causar leituras incorretas ou instáveis no sensor TX-200?",
+    "relevant": [
+      {
+        "source": "product_manual.pdf",
+        "page": 2
+      },
+      {
+        "source": "product_manual.pdf",
+        "page": 5
+      }
+    ]
+  },
+  {
+    "id": "q26",
+    "question": "Quais parâmetros de configuração elétrica e de rede o TX-200 precisa para funcionar corretamente?",
+    "relevant": [
+      {
+        "source": "product_manual.pdf",
+        "page": 4
+      },
+      {
+        "source": "product_manual.pdf",
+        "page": 5
+      }
+    ]
+  }
+]

@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+data/qdrant_storage/
+*.egg-info/
+.pytest_cache/
+.DS_Store
+*.log
+
+# Artefatos gerados (reproduzíveis via run_indexing.py, não versionados)
+data/bm25_index.pkl
+*.pkl

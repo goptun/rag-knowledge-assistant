@@ -1,0 +1,46 @@
+# API
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# Orquestração RAG
+llama-index-core==0.12.10
+llama-index-vector-stores-qdrant==0.4.2
+llama-index-embeddings-huggingface==0.4.0
+
+# Parsing de documentos
+pypdf==5.1.0
+beautifulsoup4==4.12.3
+markdown-it-py==3.0.0
+unstructured==0.16.11
+
+# Chunking / NLP
+nltk==3.9.1
+
+# Embeddings e reranking (local)
+sentence-transformers==3.3.1
+torch>=2.2.0,<3.0.0
+
+# Vector DB
+qdrant-client==1.12.1
+
+# Sparse retrieval (BM25)
+rank-bm25==0.2.2
+
+# Geração (Fase 5)
+anthropic>=0.40.0
+openai>=1.50.0
+
+# Avaliação
+ragas>=0.2.10,<0.5
+langchain-anthropic>=0.3.0
+langchain-openai>=0.2.0
+
+# Utilidades
+python-dotenv==1.0.1
+tqdm==4.67.1
+
+# Dev / testes
+pytest==8.3.4
+httpx==0.28.1
