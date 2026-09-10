@@ -18,13 +18,16 @@ from __future__ import annotations
 import json
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Iterator
 
 from fastapi import Depends, FastAPI
 
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.dependencies import build_generator, get_generator
+from app.api.rate_limit import rate_limit
 from app.api.schemas import QueryRequest
 from app.config.settings import settings
 from app.generation.pipeline import AnswerGenerator
@@ -91,7 +94,7 @@ def _sse_events(generator: AnswerGenerator, req: QueryRequest) -> Iterator[str]:
         yield _sse("error", {"message": str(exc)})
 
 
-@app.post("/query")
+@app.post("/query", dependencies=[Depends(rate_limit)])
 def query(req: QueryRequest, generator: AnswerGenerator = Depends(get_generator)):
     return StreamingResponse(
         _sse_events(generator, req), media_type="text/event-stream"
@@ -105,3 +108,12 @@ def health(generator: AnswerGenerator = Depends(get_generator)):
         "qdrant_collection": settings.qdrant_collection,
         "bm25_loaded": generator.retriever.sparse_index is not None,
     }
+
+
+# Frontend estático de demonstração (app/static/index.html). Montado por
+# último, depois das rotas de API, porque o Starlette casa rotas na ordem em
+# que foram registradas — se viesse antes, o mount em "/" interceptaria
+# /query e /health também.
+_STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+if _STATIC_DIR.exists():
+    app.mount("/", StaticFiles(directory=_STATIC_DIR, html=True), name="static")

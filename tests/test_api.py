@@ -3,6 +3,7 @@ import unittest
 
 from fastapi.testclient import TestClient
 
+from app.api import rate_limit as rate_limit_module
 from app.api.dependencies import get_generator
 from app.api.main import app
 from app.generation.pipeline import AnswerGenerator
@@ -40,6 +41,7 @@ def _build_fake_generator(chunks, response_text) -> AnswerGenerator:
 
 class TestQueryEndpoint(unittest.TestCase):
     def setUp(self):
+        rate_limit_module.reset_for_tests()
         self.chunks = [_chunk("a.md", text="A API usa OAuth2.", section="Autenticação")]
         self.generator = _build_fake_generator(self.chunks, "Usa OAuth2 [1].")
         app.dependency_overrides[get_generator] = lambda: self.generator
@@ -47,6 +49,7 @@ class TestQueryEndpoint(unittest.TestCase):
 
     def tearDown(self):
         app.dependency_overrides.clear()
+        rate_limit_module.reset_for_tests()
 
     def test_query_streams_retrieved_delta_and_done_events(self):
         response = self.client.post("/query", json={"question": "pergunta"})
@@ -112,8 +115,12 @@ class _FailingLLMClient:
 
 
 class TestQueryEndpointErrorHandling(unittest.TestCase):
+    def setUp(self):
+        rate_limit_module.reset_for_tests()
+
     def tearDown(self):
         app.dependency_overrides.clear()
+        rate_limit_module.reset_for_tests()
 
     def test_llm_failure_mid_stream_emits_error_event_instead_of_dropping_connection(self):
         chunks = [_chunk("a.md", text="A API usa OAuth2.", section="Autenticação")]
@@ -131,6 +138,51 @@ class TestQueryEndpointErrorHandling(unittest.TestCase):
         error_events = [e for e in events if e["type"] == "error"]
         self.assertEqual(len(error_events), 1)
         self.assertIn("credit balance", error_events[0]["data"]["message"])
+
+
+class TestRateLimiting(unittest.TestCase):
+    def setUp(self):
+        rate_limit_module.reset_for_tests()
+        chunks = [_chunk("a.md", text="A API usa OAuth2.", section="Autenticação")]
+        self.generator = _build_fake_generator(chunks, "Usa OAuth2 [1].")
+        app.dependency_overrides[get_generator] = lambda: self.generator
+        self.client = TestClient(app)
+
+    def tearDown(self):
+        app.dependency_overrides.clear()
+        rate_limit_module.reset_for_tests()
+
+    def test_exceeding_limit_within_window_returns_429(self):
+        limit = rate_limit_module.MAX_REQUESTS_PER_WINDOW
+        for _ in range(limit):
+            response = self.client.post("/query", json={"question": "pergunta"})
+            self.assertEqual(response.status_code, 200)
+
+        response = self.client.post("/query", json={"question": "pergunta"})
+
+        self.assertEqual(response.status_code, 429)
+        self.assertIn("detail", response.json())
+
+    def test_limit_is_scoped_per_client_ip(self):
+        # rate_limit() usa request.client.host como chave — simula duas
+        # origens diferentes chamando a função de dependency diretamente,
+        # sem depender do TestClient (que sempre reporta o mesmo IP
+        # "testclient" e não permite variar isso por requisição).
+        from unittest.mock import Mock
+
+        from app.api.rate_limit import rate_limit
+
+        limit = rate_limit_module.MAX_REQUESTS_PER_WINDOW
+        req_a = Mock(client=Mock(host="1.1.1.1"))
+        req_b = Mock(client=Mock(host="2.2.2.2"))
+
+        for _ in range(limit):
+            rate_limit(req_a)  # não deve levantar
+
+        with self.assertRaises(Exception):
+            rate_limit(req_a)
+
+        rate_limit(req_b)  # IP diferente, cota independente — não deve levantar
 
 
 if __name__ == "__main__":
