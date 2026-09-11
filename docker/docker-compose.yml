@@ -29,7 +29,7 @@ services:
       dockerfile: docker/Dockerfile
     container_name: rag_api
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       QDRANT_URL: http://qdrant:6333
     env_file:
