@@ -2,7 +2,7 @@
 
 Assistente de conhecimento interno baseado em RAG (Retrieval-Augmented Generation), com retrieval híbrido (vetorial + keyword), reranking, geração com citação de fontes e deploy em produção — cada etapa validada com execução real (dados sintéticos, mas pipeline e infra reais) e avaliada com métricas, não só "rodou sem erro".
 
-**Demo ao vivo**: [http://152.70.217.167:8000/](http://152.70.217.167:8000/) — pergunte algo sobre a base de documentos sintéticos (documentação de API + política interna de uma empresa fictícia) e veja o retrieval e a geração acontecendo em tempo real. Sem HTTPS/domínio próprio (IP direto), limite de 8 perguntas/minuto por visitante.
+**Demo ao vivo**: [https://rag.matheusramos.dev/](https://rag.matheusramos.dev/) — pergunte algo sobre a base de documentos sintéticos (documentação de API + política interna de uma empresa fictícia) e veja o retrieval e a geração acontecendo em tempo real. HTTPS via domínio próprio (Cloudflare + Nginx), limite de 8 perguntas/minuto por visitante.
 
 ## Status
 
@@ -52,19 +52,23 @@ flowchart LR
     N --> O["Resposta + fontes"]
 ```
 
-**Deploy (Fase 6):**
+**Deploy (Fase 6 + domínio próprio):**
 
 ```mermaid
 flowchart LR
+    Cliente["Cliente HTTP<br/>(navegador)"] -- "HTTPS<br/>rag.matheusramos.dev" --> CF["Cloudflare<br/>DNS + proxy + TLS de borda"]
+
     subgraph VPS["Oracle Cloud VPS — Ubuntu ARM64"]
-        API["FastAPI<br/>/query · /health"] --> QD[("Qdrant")]
+        Nginx["Nginx<br/>reverse proxy (Origin Cert)"] --> API["FastAPI<br/>/query · /health<br/>(127.0.0.1:8000)"]
+        API --> QD[("Qdrant")]
         API --> Router["9Router<br/>proxy OpenAI-compatible"]
     end
-    Cliente["Cliente HTTP"] -- "porta 8000 (público)" --> API
+
+    CF -- "HTTPS<br/>(Origin Certificate)" --> Nginx
     Admin["Navegador do usuário"] -- "Tailscale (dashboard, porta 20128)" --> Router
 ```
 
-O LLM de geração roda dentro da própria VPS, num container `router` (imagem `decolua/9router`, multi-arquitetura `amd64`/`arm64`) no mesmo `docker-compose.yml` — `api` fala com ele pela rede interna do Docker (`http://router:20128/v1`), sem depender de nenhuma outra máquina no ar. O dashboard de administração (configurar providers/combo) fica exposto só na tailnet Tailscale da VPS, nunca na internet pública (ver [Trade-offs](#trade-offs-e-decisões-de-design)).
+O LLM de geração roda dentro da própria VPS, num container `router` (imagem `decolua/9router`, multi-arquitetura `amd64`/`arm64`) no mesmo `docker-compose.yml` — `api` fala com ele pela rede interna do Docker (`http://router:20128/v1`), sem depender de nenhuma outra máquina no ar. O dashboard de administração (configurar providers/combo) fica exposto só na tailnet Tailscale da VPS, nunca na internet pública. Na frente, o tráfego público chega via Cloudflare (DNS proxied + TLS na borda) até o Nginx da VPS, que termina TLS com um Origin Certificate e repassa pra API, que só escuta em `127.0.0.1:8000` — não é mais alcançável diretamente pela internet (ver [Trade-offs](#trade-offs-e-decisões-de-design)).
 
 ## Stack
 
@@ -75,6 +79,7 @@ O LLM de geração roda dentro da própria VPS, num container `router` (imagem `
 - **API**: FastAPI (streaming via SSE) + frontend estático de demonstração (`app/static/index.html`, servido pela própria API) + rate limiting em memória no `/query`
 - **LLM de geração e juiz de avaliação**: configurável — Anthropic (API oficial) ou qualquer proxy OpenAI-compatible (`LLM_PROVIDER=openai_compatible`), usado em produção via 9Router rodando como container na própria VPS
 - **Deploy**: Docker Compose numa VPS (Oracle Cloud), código versionado no GitHub; dashboard de administração do 9Router exposto só via Tailscale
+- **Borda/HTTPS**: domínio próprio (`matheusramos.dev`, Cloudflare) com DNS proxied, SSL/TLS em modo Full (strict) e Nginx na VPS terminando TLS com um Cloudflare Origin Certificate
 
 ## Estrutura do projeto
 
@@ -93,7 +98,7 @@ data/
   test_docs/    # documentos sintéticos para validar o pipeline
   eval/         # dataset de perguntas + ground truth (Fase 4)
 docker/
-  docker-compose.yml  # Qdrant + API (Fases 5-6)
+  docker-compose.yml  # Qdrant + 9Router + API (Fases 5-6)
   Dockerfile          # imagem da API (Fase 5)
 scripts/
   run_ingestion.py       # valida parsing + chunking ponta a ponta (Fase 1)
@@ -105,6 +110,8 @@ scripts/
   generate_test_pdf.py   # gera o PDF de teste sintético
 tests/          # testes unitários (unittest, sem dependência de pytest)
 ```
+
+A configuração do Nginx (reverse proxy TLS) vive no host da VPS, fora do repositório — é infraestrutura da borda, não do código da aplicação.
 
 ## Setup
 
@@ -262,11 +269,11 @@ Deploy validado numa VPS Oracle Cloud (Ubuntu 24.04, ARM64) via Docker Compose, 
 ```bash
 git clone <repo> && cd rag-knowledge-assistant
 cp .env.example .env   # editar: LLM_PROVIDER, LLM_BASE_URL, LLM_API_KEY, LLM_MODEL
-sudo docker compose -f docker/docker-compose.yml up -d --build
-sudo docker compose -f docker/docker-compose.yml exec api python scripts/run_indexing.py --dir data/test_docs
+sudo docker compose -f docker/docker-compose.yml --env-file .env up -d --build
+sudo docker compose -f docker/docker-compose.yml --env-file .env exec api python scripts/run_indexing.py --dir data/test_docs
 ```
 
-`docker-compose.yml` sobe dois serviços: `qdrant` e `api` (build a partir de `docker/Dockerfile`). O diretório `data/` é bind-mounted em vez de copiado pra imagem, porque a indexação roda depois do build, contra o Qdrant do próprio compose. **Atenção**: a API carrega o índice BM25 uma única vez, no startup (`app.state.generator`) — se a indexação rodar depois da API já estar de pé, é preciso `docker compose restart api` pra ela pegar o índice novo.
+`docker-compose.yml` sobe três serviços: `qdrant`, `router` (9Router) e `api` (build a partir de `docker/Dockerfile`). O diretório `data/` é bind-mounted em vez de copiado pra imagem, porque a indexação roda depois do build, contra o Qdrant do próprio compose. **Atenção**: a API carrega o índice BM25 uma única vez, no startup (`app.state.generator`) — se a indexação rodar depois da API já estar de pé, é preciso `docker compose restart api` pra ela pegar o índice novo.
 
 **Primeira versão**: o LLM rodava fora da VPS, num proxy local (9Router) no Mac do usuário, alcançado via Tailscale (`tailscale serve --bg --tcp=20128 tcp://127.0.0.1:20128`). Funcionou, mas acoplava a disponibilidade da API em produção a uma máquina de uso pessoal estar ligada e com o app aberto — inaceitável mesmo pra portfolio, então foi substituído.
 
@@ -274,13 +281,25 @@ sudo docker compose -f docker/docker-compose.yml exec api python scripts/run_ind
 
 Validado ponta a ponta, inclusive pelo IP público (depois de liberar a porta 8000 no `ufw` e na Security List da VCN do Oracle Cloud): retrieval híbrido, streaming SSE completo, geração via 9Router local à VPS, resposta em português citando `[n]`, citação resolvida corretamente.
 
+### Domínio próprio + HTTPS (Cloudflare + Nginx)
+
+A demo ao vivo inicialmente rodava só no IP público da VPS, sem TLS. Depois de registrar um domínio próprio (`matheusramos.dev`, Cloudflare), a demo passou a rodar em `https://rag.matheusramos.dev/`:
+
+- **DNS**: registro A `rag.matheusramos.dev → <IP da VPS>`, com proxy da Cloudflare ativado (nuvem laranja) — esconde o IP de origem e termina TLS na borda gratuitamente.
+- **SSL/TLS mode**: **Full (strict)** — exige certificado válido também na origem, não só na borda.
+- **Origin Certificate**: gerado gratuitamente em Cloudflare (SSL/TLS → Origin Server, validade de 15 anos), instalado no Nginx da VPS — não depende de Let's Encrypt/certbot nem de renovação automática.
+- **Nginx como reverse proxy** na VPS: termina TLS com o Origin Certificate e repassa pra API em `127.0.0.1:8000`, com diretivas específicas pra não quebrar o streaming SSE (`proxy_buffering off`, `proxy_cache off`, `chunked_transfer_encoding off`, `proxy_read_timeout` alto).
+- **Porta 8000 fechada ao público**: o mesmo problema do bind em `0.0.0.0` que afetava o dashboard do 9Router (Docker ignora `ufw`) também valia pra API — corrigido amarrando o `docker-compose.yml` a `127.0.0.1:8000:8000`, e as regras `ufw` pra 8000 (que nunca protegiam de verdade) foram removidas.
+
+Validado com execução real: `/health` e um `/query` completo com streaming funcionando via HTTPS no domínio; a porta 8000 do IP direto passou a recusar conexão.
+
 ## Testes
 
 ```bash
 python3 -m unittest discover -s tests -v
 ```
 
-66 testes, cobrindo parsing, chunking, indexação, retrieval, geração, citações e a API (incluindo o tratamento de erro do streaming).
+69 testes, cobrindo parsing, chunking, indexação, retrieval, geração, citações, rate limiting e a API (incluindo o tratamento de erro do streaming).
 
 ## Trade-offs e decisões de design
 
@@ -295,6 +314,8 @@ python3 -m unittest discover -s tests -v
 **Citação resolvida por índice, nunca por texto do LLM.** `app/generation/citations.py` extrai só o marcador numérico `[n]` da resposta e resolve pro metadado real do chunk que ocupava a posição n no prompt — o LLM nunca é a fonte de verdade sobre *qual* é a fonte, só sobre *que* informação usar. Evita um LLM confiante citando a fonte errada (alucinação de citação, distinta de alucinação de conteúdo).
 
 **Proxy de LLM dentro da VPS, não num LLM local nem preso ao notebook do usuário.** Três alternativas descartadas: (a) rodar o LLM de geração localmente na própria VPS — inviável no free tier ARM da Oracle (sem GPU, RAM limitada); o build do Docker já levou ~90 minutos só pra instalar `torch`/`transformers`/`sentence-transformers` do embedder e reranker, que são leves comparados a servir um LLM; (b) usar a API paga da Anthropic na VPS — reintroduz a dependência de crédito que motivou trocar pra um proxy local; (c) manter o 9Router no Mac do usuário e a VPS alcançando via Tailscale — funcionou, mas acopla a disponibilidade da API de produção a uma máquina pessoal estar ligada, um ponto único de falha inaceitável mesmo pra portfolio. Solução final: 9Router como container no próprio `docker-compose.yml` da VPS, com o dashboard de administração exposto só via Tailscale (nunca publicamente) — resolve o SPOF sem abrir mão da superfície de ataque mínima que motivou usar Tailscale desde o início.
+
+**Cloudflare Origin Certificate em vez de Let's Encrypt/certbot.** Um certificado emitido pela própria Cloudflare (válido só entre Cloudflare e a origem, nunca verificado diretamente por um navegador) evita manter um processo de renovação automática (certbot + cron/systemd timer) na VPS pra um cenário onde o navegador nunca fala direto com a origem mesmo — o modo "Full (strict)" da Cloudflare já garante que a conexão de borda até a origem é criptografada e autenticada. Custo: confiar a Cloudflare como intermediário de TLS (ela decripta e recriptografa o tráfego na borda) — trade-off aceitável pra um projeto de portfolio, mas relevante de mencionar numa entrevista técnica.
 
 ## Ambiente de desenvolvimento
 
