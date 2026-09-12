@@ -2,7 +2,7 @@
 
 Assistente de conhecimento interno baseado em RAG (Retrieval-Augmented Generation), com retrieval híbrido (vetorial + keyword), reranking, geração com citação de fontes e deploy em produção — cada etapa validada com execução real (dados sintéticos, mas pipeline e infra reais) e avaliada com métricas, não só "rodou sem erro".
 
-**Demo ao vivo**: [https://rag.matheusramos.dev/](https://rag.matheusramos.dev/) — pergunte algo sobre a base de documentos sintéticos (documentação de API + política interna de uma empresa fictícia) e veja o retrieval e a geração acontecendo em tempo real. HTTPS via domínio próprio (Cloudflare + Nginx), limite de 8 perguntas/minuto por visitante.
+**Demo ao vivo**: [https://matheusramos.dev/projects/rag/](https://matheusramos.dev/projects/rag/) — pergunte algo sobre a base de documentos sintéticos (documentação de API + política interna de uma empresa fictícia) e veja o retrieval e a geração acontecendo em tempo real. HTTPS via domínio próprio (Cloudflare + Nginx), limite de 8 perguntas/minuto por visitante.
 
 ## Status
 
@@ -56,7 +56,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    Cliente["Cliente HTTP<br/>(navegador)"] -- "HTTPS<br/>rag.matheusramos.dev" --> CF["Cloudflare<br/>DNS + proxy + TLS de borda"]
+    Cliente["Cliente HTTP<br/>(navegador)"] -- "HTTPS<br/>matheusramos.dev/projects/rag" --> CF["Cloudflare<br/>DNS + proxy + TLS de borda"]
 
     subgraph VPS["Oracle Cloud VPS — Ubuntu ARM64"]
         Nginx["Nginx<br/>reverse proxy (Origin Cert)"] --> API["FastAPI<br/>/query · /health<br/>(127.0.0.1:8000)"]
@@ -292,6 +292,16 @@ A demo ao vivo inicialmente rodava só no IP público da VPS, sem TLS. Depois de
 - **Porta 8000 fechada ao público**: o mesmo problema do bind em `0.0.0.0` que afetava o dashboard do 9Router (Docker ignora `ufw`) também valia pra API — corrigido amarrando o `docker-compose.yml` a `127.0.0.1:8000:8000`, e as regras `ufw` pra 8000 (que nunca protegiam de verdade) foram removidas.
 
 Validado com execução real: `/health` e um `/query` completo com streaming funcionando via HTTPS no domínio; a porta 8000 do IP direto passou a recusar conexão.
+
+### Migração de subdomínio para path (`/projects/rag/`)
+
+A demo passou de `rag.matheusramos.dev` para `matheusramos.dev/projects/rag/`, pra ficar dentro do portfólio principal em vez de um subdomínio separado:
+
+- **Nginx**: o site `matheusramos.dev` ganhou uma `location /projects/rag/` que faz proxy pra mesma API (`127.0.0.1:8000`), com a barra final tanto na location quanto no `proxy_pass` — isso remove o prefixo `/projects/rag/` antes de repassar pro backend, que continua vendo `/`, `/query`, `/health` normalmente.
+- **Frontend**: o `fetch('/query', ...)` virou `fetch('query', ...)` (caminho relativo) — assim funciona tanto na raiz quanto atrás de um prefixo, sem precisar a API saber em qual path está montada.
+- **CSP**: o `<style>`/`<script>` inline viraram `style.css`/`app.js` externos, pra respeitar a Content-Security-Policy estrita (`script-src 'self'`) do domínio principal, que bloquearia script/style inline.
+- **Identidade visual**: a paleta escura original deu lugar à mesma paleta neutra (off-white/quase-preto) e tipografia do portfólio, com um link de volta pro site principal.
+- `rag.matheusramos.dev` continua existindo só como redirecionamento 301 pro novo caminho, preservando links antigos.
 
 ## Testes
 
