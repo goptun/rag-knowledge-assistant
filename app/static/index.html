@@ -4,12 +4,33 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RAG Knowledge Assistant — Demo</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="stylesheet" href="style.css">
+<script src="/theme-init.js"></script>
 </head>
 <body>
+<header class="nav-wrap">
+  <nav class="nav" aria-label="Navegação principal">
+    <a class="brand" href="/">Matheus Ramos</a>
+    <ul class="nav-links">
+      <li><a href="/">Início</a></li>
+      <li><a href="/projects/" aria-current="page">Projetos</a></li>
+      <li><a href="/newsletter/">Newsletter</a></li>
+    </ul>
+    <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Alternar tema claro/escuro">
+      <svg class="icon icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="4"></circle>
+        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
+      </svg>
+      <svg class="icon icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"></path>
+      </svg>
+    </button>
+  </nav>
+</header>
+<script src="/theme-toggle.js"></script>
 <div class="wrap">
-  <a class="back-link" href="../">← Matheus Ramos</a>
-  <header>
+  <div class="intro">
     <h1>RAG Knowledge Assistant</h1>
     <p class="subtitle">
       Demo de um pipeline RAG (retrieval híbrido + reranking + geração com citação de fontes)
@@ -23,7 +44,7 @@
       <span class="badge">streaming SSE</span>
       <span class="badge">citação por chunk real</span>
     </div>
-  </header>
+  </div>
 
   <div class="panel">
     <div class="examples" id="examples"></div>
