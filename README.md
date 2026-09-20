@@ -303,6 +303,11 @@ A demo passou de `rag.matheusramos.dev` para `matheusramos.dev/projects/rag/`, p
 - **Identidade visual**: a paleta escura original deu lugar à mesma paleta neutra (off-white/quase-preto) e tipografia do portfólio, com um link de volta pro site principal.
 - `rag.matheusramos.dev` continua existindo só como redirecionamento 301 pro novo caminho, preservando links antigos.
 
+### Endurecimento posterior (rate limit por visitante real + Qdrant só em loopback)
+
+- **Rate limit por visitante.** O limiter identificava o visitante por `request.client.host`, que atrás do Nginx é sempre o gateway do Docker: todos os visitantes dividiam **um único bucket** (8 perguntas/min no total, não por pessoa). Agora a chave é `CF-Connecting-IP` → primeiro `X-Forwarded-For` → peer TCP, com um **teto global** de 30/min para proteger a cota do LLM, `Retry-After` no 429, estrutura thread-safe e memória limitada. Risco aceito: quem acessar a origem sem passar pela Cloudflare pode forjar o cabeçalho; o teto global limita o dano. Há teste de regressão (dois visitantes atrás do mesmo peer).
+- **Qdrant em `127.0.0.1`.** As portas 6333/6334 estavam publicadas em `0.0.0.0` (o Docker ignora o `ufw`), protegidas só pelo firewall da Oracle. Agora só o loopback publica; a API continua falando com ele pela rede interna do Compose.
+
 ## Testes
 
 ```bash
