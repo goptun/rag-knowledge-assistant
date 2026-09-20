@@ -32,6 +32,10 @@ class TestCitations(unittest.TestCase):
         text = "Fato A [2]. Fato B [1]. Fato C [2] de novo."
         self.assertEqual(extract_cited_indices(text), [2, 1])
 
+    def test_extract_cited_indices_accepts_fullwidth_brackets(self):
+        text = "Fato A 【2】. Fato B [1]. Fato C 【2】."
+        self.assertEqual(extract_cited_indices(text), [2, 1])
+
     def test_build_citations_resolves_to_real_metadata(self):
         chunks = [_chunk("a.md", section="Auth"), _chunk("b.md", page=5)]
         citations = build_citations("Usa OAuth2 [1] e expira em 5 min [2].", chunks)

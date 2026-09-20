@@ -270,9 +270,39 @@ button:not(:disabled):active { transform: translateY(0); }
   background: var(--bg); color: var(--muted); border: 1px solid var(--border);
 }
 #answer {
-  white-space: pre-wrap; line-height: 1.6; font-size: var(--text-base);
+  line-height: 1.6; font-size: var(--text-base);
   min-height: 1.4em; margin-top: var(--space-4);
+  overflow-wrap: anywhere;
 }
+#answer > :first-child { margin-top: 0; }
+#answer > :last-child { margin-bottom: 0; }
+#answer p, #answer ul, #answer ol, #answer pre, #answer .table-wrap { margin: 0 0 var(--space-3); }
+#answer h3, #answer h4, #answer h5, #answer h6 {
+  margin: var(--space-4) 0 var(--space-2); line-height: 1.3; letter-spacing: var(--tracking-tight);
+}
+#answer h3 { font-size: var(--text-lg); }
+#answer h4, #answer h5, #answer h6 { font-size: var(--text-base); }
+#answer ul, #answer ol { padding-left: 1.4em; }
+#answer li + li { margin-top: var(--space-1); }
+#answer a { color: var(--accent-brand); }
+#answer code {
+  font-family: var(--font-mono); font-size: 0.9em;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 0.35rem;
+  padding: 0.05em 0.35em;
+}
+#answer pre {
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: var(--space-3); overflow-x: auto; line-height: 1.5;
+}
+#answer pre code {
+  background: none; border: 0; padding: 0; font-size: var(--text-sm);
+  white-space: pre; overflow-wrap: normal;
+}
+#answer .cite { font-size: 0.7em; color: var(--accent-brand); font-weight: 600; margin-left: 0.1em; }
+#answer .table-wrap { overflow-x: auto; }
+#answer table { border-collapse: collapse; font-size: var(--text-sm); }
+#answer th, #answer td { border: 1px solid var(--border); padding: var(--space-1) var(--space-2); text-align: left; }
+#answer th { background: var(--bg); }
 #citations { margin-top: var(--space-4); display: flex; flex-direction: column; gap: var(--space-1); }
 .citation { font-size: var(--text-sm); color: var(--muted); }
 .citation b { color: var(--text); }

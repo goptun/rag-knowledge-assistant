@@ -14,6 +14,20 @@ const retrievedEl = document.getElementById('retrieved');
 const answerEl = document.getElementById('answer');
 const citationsEl = document.getElementById('citations');
 
+// Texto cru acumulado do stream; a cada delta re-renderiza como Markdown.
+let answerText = '';
+
+function renderAnswer() {
+  answerEl.innerHTML = renderMarkdown(answerText);
+}
+
+function showError(message) {
+  const p = document.createElement('p');
+  p.className = 'error-text';
+  p.textContent = message;
+  answerEl.appendChild(p);
+}
+
 const examplesEl = document.getElementById('examples');
 EXAMPLES.forEach((q) => {
   const chip = document.createElement('span');
@@ -62,12 +76,13 @@ function handleBlock(block) {
     renderRetrieved(data.retrieved);
     statusEl.textContent = `Recuperado com ${data.mode}. Gerando resposta…`;
   } else if (eventType === 'delta') {
-    answerEl.textContent += data.text;
+    answerText += data.text;
+    renderAnswer();
   } else if (eventType === 'done') {
     renderCitations(data.citations);
     statusEl.textContent = '';
   } else if (eventType === 'error') {
-    answerEl.innerHTML += `\n\n<span class="error-text">Erro do modelo: ${data.message}</span>`;
+    showError(`Erro do modelo: ${data.message}`);
     statusEl.textContent = '';
   }
 }
@@ -78,7 +93,8 @@ async function ask() {
 
   resultPanel.hidden = false;
   retrievedEl.innerHTML = '';
-  answerEl.textContent = '';
+  answerText = '';
+  answerEl.innerHTML = '';
   citationsEl.innerHTML = '';
   statusEl.textContent = 'Buscando contexto relevante…';
   setLoading(true);
@@ -92,7 +108,7 @@ async function ask() {
 
     if (resp.status === 429) {
       const err = await resp.json().catch(() => ({}));
-      answerEl.innerHTML = `<span class="error-text">${err.detail || 'Muitas perguntas em pouco tempo. Espera um minuto.'}</span>`;
+      showError(err.detail || 'Muitas perguntas em pouco tempo. Espera um minuto.');
       statusEl.textContent = '';
       return;
     }
@@ -116,7 +132,7 @@ async function ask() {
       }
     }
   } catch (e) {
-    answerEl.innerHTML = `<span class="error-text">Erro: ${e.message}</span>`;
+    showError(`Erro: ${e.message}`);
     statusEl.textContent = '';
   } finally {
     setLoading(false);

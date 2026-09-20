@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import re
 
-_CITATION_RE = re.compile(r"\[(\d+)\]")
+# Aceita também 【n】 (colchetes de largura total), que alguns modelos
+# emitem no lugar de [n].
+_CITATION_RE = re.compile(r"[\[【](\d+)[\]】]")
 
 
 def extract_cited_indices(text: str) -> list[int]:
