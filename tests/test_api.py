@@ -163,26 +163,87 @@ class TestRateLimiting(unittest.TestCase):
         self.assertEqual(response.status_code, 429)
         self.assertIn("detail", response.json())
 
-    def test_limit_is_scoped_per_client_ip(self):
-        # rate_limit() usa request.client.host como chave — simula duas
-        # origens diferentes chamando a função de dependency diretamente,
-        # sem depender do TestClient (que sempre reporta o mesmo IP
-        # "testclient" e não permite variar isso por requisição).
+    @staticmethod
+    def _request(host="10.0.0.1", **headers):
+        """Requisição falsa: `headers` é um dict (o código real usa .get em minúsculas), como no Starlette."""
         from unittest.mock import Mock
 
+        return Mock(headers={k.lower().replace("_", "-"): v for k, v in headers.items()}, client=Mock(host=host))
+
+    def test_limit_is_scoped_per_client_ip_when_there_is_no_proxy_header(self):
         from app.api.rate_limit import rate_limit
 
         limit = rate_limit_module.MAX_REQUESTS_PER_WINDOW
-        req_a = Mock(client=Mock(host="1.1.1.1"))
-        req_b = Mock(client=Mock(host="2.2.2.2"))
+        req_a, req_b = self._request(host="1.1.1.1"), self._request(host="2.2.2.2")
 
         for _ in range(limit):
             rate_limit(req_a)  # não deve levantar
-
         with self.assertRaises(Exception):
             rate_limit(req_a)
+        rate_limit(req_b)  # IP diferente, cota independente
 
-        rate_limit(req_b)  # IP diferente, cota independente — não deve levantar
+    def test_visitors_behind_the_same_proxy_peer_have_independent_quotas(self):
+        """Regressão: atrás do Nginx o peer TCP é sempre o gateway do Docker. Chaveando por client.host,
+        todos os visitantes dividiam UM bucket (8 perguntas/min no total em vez de por pessoa)."""
+        from app.api.rate_limit import rate_limit
+
+        limit = rate_limit_module.MAX_REQUESTS_PER_WINDOW
+        gateway = "172.18.0.1"
+        alice = self._request(host=gateway, CF_Connecting_IP="203.0.113.10")
+        bob = self._request(host=gateway, CF_Connecting_IP="203.0.113.20")
+
+        for _ in range(limit):
+            rate_limit(alice)
+        with self.assertRaises(Exception):
+            rate_limit(alice)
+        for _ in range(limit):  # o Bob, no mesmo gateway, ainda tem a cota inteira
+            rate_limit(bob)
+
+    def test_cloudflare_header_wins_over_forwarded_for_and_first_hop_is_used(self):
+        from app.api.rate_limit import visitor_key
+
+        both = self._request(CF_Connecting_IP="203.0.113.1", X_Forwarded_For="198.51.100.9, 10.0.0.1")
+        only_xff = self._request(X_Forwarded_For="198.51.100.9, 10.0.0.1")
+        neither = self._request(host="192.0.2.7")
+        self.assertEqual(visitor_key(both), "203.0.113.1")
+        self.assertEqual(visitor_key(only_xff), "198.51.100.9")
+        self.assertEqual(visitor_key(neither), "192.0.2.7")
+
+    def test_global_cap_limits_the_total_across_visitors(self):
+        from unittest.mock import patch
+
+        from app.api.rate_limit import rate_limit
+
+        with patch.object(rate_limit_module, "GLOBAL_MAX_REQUESTS_PER_WINDOW", 5):
+            for i in range(5):
+                rate_limit(self._request(CF_Connecting_IP=f"203.0.113.{i}"))
+            with self.assertRaises(Exception):  # 6º visitante distinto: o teto global já foi atingido
+                rate_limit(self._request(CF_Connecting_IP="203.0.113.99"))
+
+    def test_429_carries_retry_after_and_per_visitor_isolation_over_http(self):
+        limit = rate_limit_module.MAX_REQUESTS_PER_WINDOW
+        vis = lambda ip: {"CF-Connecting-IP": ip}
+        for _ in range(limit):
+            self.assertEqual(self.client.post("/query", json={"question": "q"}, headers=vis("203.0.113.1")).status_code, 200)
+        blocked = self.client.post("/query", json={"question": "q"}, headers=vis("203.0.113.1"))
+        self.assertEqual(blocked.status_code, 429)
+        self.assertGreaterEqual(int(blocked.headers["Retry-After"]), 1)
+        # outro visitante (mesmo peer "testclient") segue sendo atendido
+        self.assertEqual(self.client.post("/query", json={"question": "q"}, headers=vis("203.0.113.2")).status_code, 200)
+
+    def test_tracked_visitors_are_bounded(self):
+        from unittest.mock import patch
+
+        from app.api.rate_limit import rate_limit
+
+        clock = {"t": 1000.0}
+        with patch.object(rate_limit_module, "MAX_TRACKED_VISITORS", 20), patch.object(rate_limit_module.time, "monotonic", lambda: clock["t"]), patch.object(
+            rate_limit_module, "GLOBAL_MAX_REQUESTS_PER_WINDOW", 10**9
+        ):
+            for i in range(60):
+                rate_limit(self._request(CF_Connecting_IP=f"198.51.100.{i}"))
+                clock["t"] += 5  # cada visitante expira depois de 60 s
+            self.assertLess(len(rate_limit_module._hits), 60)  # entradas expiradas foram descartadas
 
 
 if __name__ == "__main__":
