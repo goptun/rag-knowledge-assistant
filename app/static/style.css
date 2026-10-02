@@ -134,6 +134,12 @@ a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
   color: var(--text);
 }
 
+/* Monograma "MR" — o mesmo do favicon do site principal, com os tokens do tema. */
+.brand { display: inline-flex; align-items: center; gap: var(--space-2); }
+.brand-mark { width: 1.75rem; height: 1.75rem; flex-shrink: 0; }
+.brand-mark-tile { fill: var(--accent-bg); stroke: var(--border); }
+.brand-mark-glyph { fill: none; stroke: var(--accent); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+
 .nav-links {
   display: flex;
   flex-wrap: wrap;
